@@ -1,0 +1,100 @@
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Data;
+using System.Drawing;
+using System.Text;
+using System.Windows.Forms;
+
+namespace Sample
+{
+    public partial class FrmSample : Form
+    {
+        RFID reader = new RFID();
+        bool IsConnected = false;
+
+        public FrmSample()
+        {
+            InitializeComponent();
+            SerialScan();
+        }
+
+        private void SerialScan()
+        {
+            cb_ConnAddr.Items.Clear();
+            string[] ports = System.IO.Ports.SerialPort.GetPortNames();
+            foreach (string port in ports)
+            {
+                if (!cb_ConnAddr.Items.Contains(port))
+                {
+                    cb_ConnAddr.Items.Add(port);
+                }
+            }
+        }
+        private void b_connect_Click(object sender, EventArgs e)
+        {
+            if (IsConnected)
+            {//disconnect
+                IsConnected = false;
+                reader.Disconnect();
+                gb_RfidOper.Enabled = false;
+            }
+            else
+            {//connect
+                IsConnected = reader.Connect(cb_ConnAddr.Text.Trim(), int.Parse(cb_BaudPort.Text.Trim()));
+            }
+
+            gb_RfidOper.Enabled = IsConnected;
+            b_Connect.Text = IsConnected ? "Disconnect" : "Connect";
+        }
+
+        private void b_Read_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                ushort ReadAddr = ushort.Parse(tb_ReadAddr.Text.Trim());
+                ushort ReadCnt = ushort.Parse(tb_ReadCnt.Text.Trim());
+                byte[] ReadData = new byte[256];
+
+                if (reader.ReadUserMem(ReadAddr, ReadCnt, ref ReadData))
+                {
+                    tb_ReadData.Text = RfidLib.Tool.ByteToHexString(ReadData, 0, ReadCnt << 1, " ");
+                    MessageBox.Show("Read user memory succeed.");
+                }
+                else
+                {
+                    MessageBox.Show("Read user memory failed, please check the parameter ,and ensure tag is in right area...");
+                }
+
+            }
+            catch
+            {
+                MessageBox.Show("Read user memory failed, please check parameter and rfid connection...");
+            }
+        }
+
+        private void b_Write_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                ushort ReadAddr = ushort.Parse(tb_ReadAddr.Text.Trim());
+                ushort ReadCnt = ushort.Parse(tb_ReadCnt.Text.Trim());
+                byte[] WriteData = RfidLib.Tool.HexStringToByte(tb_ReadData.Text.Trim(), 0);
+
+                if (reader.WriteUserMem(ReadAddr, ReadCnt, WriteData))
+                {
+                    MessageBox.Show("Write user memory succeed.");
+                }
+                else
+                {
+                    MessageBox.Show("Write user memory failed, please check the parameter ,and ensure tag is in right area...");
+                }
+
+            }
+            catch
+            {
+                MessageBox.Show("Read user memory failed, please check parameter and rfid connection...");
+            }
+        }
+    }
+}

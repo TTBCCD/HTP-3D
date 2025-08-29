@@ -1,0 +1,253 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Text;
+using RfidLib;
+
+namespace Sample
+{
+    class RFID
+    {
+        RfidReader Reader = new RfidReader();
+        string ConnectionAddr = "";
+        int ConnectionBaud = 502;
+        bool ConnectOk = false;
+        public bool ConnectionLostExp = true;
+        byte DefaultDeviceId = 0;
+        const int RfidOperTryCnt = 3;
+
+        public RFID()
+        { }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="ExpEn">使能异常通知，若使能需要捕捉异常</param>
+        public RFID(bool ExpEn)
+        {
+            ConnectionLostExp = ExpEn;
+        }
+
+        public bool Connect(string addr)
+        {
+            return Connect(addr, ConnectionBaud);
+        }
+
+        public bool Connect(string addr, int baud)
+        {
+            ConnectOk = Reader.RfidConnect(addr, baud);
+            if (ConnectOk)
+            {
+                ConnectionAddr = addr;
+                ConnectionBaud = baud;
+            }
+            return ConnectOk;
+        }
+    
+        public void Disconnect()
+        {
+            Reader.RfidDisconnect();
+        }
+
+        private bool Reconnect()
+        {
+            ConnectOk = false;
+            Reader.RfidDisconnect();
+            if (!Reader.RfidConnect(ConnectionAddr, ConnectionBaud))
+            {
+                System.Threading.Thread.Sleep(300);
+                if (!Reader.RfidConnect(ConnectionAddr, ConnectionBaud))
+                {
+                    if (ConnectionLostExp)
+                        throw new Exception("Connection Lost!");
+                    return false;
+                }
+            }
+            ConnectOk = true;
+            return true;
+        }
+
+        public string ReadUid()
+        {
+            TagInfo info = new TagInfo();
+            int TimeOutCounter = 0;
+
+            if (!ConnectOk)
+                if (!Reconnect())
+                    return string.Empty;
+
+            for(int i=0;i< RfidOperTryCnt; i++)
+            {
+                ModbusErrEnum err = Reader.RfidGetTagInfo(DefaultDeviceId, ref info);
+                if (err == ModbusErrEnum.MODBUS_ERR_NONE)
+                {
+                    return info.UidStr;
+                }
+                else if(err == ModbusErrEnum.MODBUS_ERR_DISCONNECTED)
+                {
+                    if (!Reconnect()) break;
+                }
+                else if (err == ModbusErrEnum.MODBUS_ERR_TIMEOUT)
+                {
+                    TimeOutCounter++;
+                }
+            }
+
+            if (TimeOutCounter >= RfidOperTryCnt)
+                Reconnect();
+
+            return string.Empty;
+        }
+
+        public bool ReadUserMem(ushort reg_addr, ushort reg_cnt, ref byte[] data)
+        {
+            int TimeOutCounter = 0;
+
+            if (!ConnectOk)
+                if (!Reconnect())
+                    return false;
+
+            if ((data == null) || (data.Length < (reg_cnt << 1))) data = new byte[reg_cnt << 1];
+
+            for (int i = 0; i < RfidOperTryCnt; i++)
+            {
+                ModbusErrEnum err = Reader.RfidReadUserData(DefaultDeviceId, reg_addr, reg_cnt, ref data);
+                if (err == ModbusErrEnum.MODBUS_ERR_NONE)
+                {
+                    return true;
+                }
+                else if (err == ModbusErrEnum.MODBUS_ERR_DISCONNECTED)
+                {
+                    if (!Reconnect()) break;
+                }
+                else if(err == ModbusErrEnum.MODBUS_ERR_TIMEOUT)
+                {
+                    TimeOutCounter++;
+                }
+            }
+
+            if (TimeOutCounter >= RfidOperTryCnt)
+                Reconnect();
+
+            return false;
+        }
+
+        public bool WriteUserMem(ushort reg_addr, ushort reg_cnt, byte[] data)
+        {
+            int TimeOutCounter = 0;
+
+            if (!ConnectOk)
+                if (!Reconnect())
+                    return false;
+
+            if ((data == null) || (data.Length < (reg_cnt << 1))) return false;
+
+            for (int i = 0; i < RfidOperTryCnt; i++)
+            {
+                ModbusErrEnum err = Reader.RfidWriteUserData(DefaultDeviceId, reg_addr, reg_cnt, data);
+                if (err == ModbusErrEnum.MODBUS_ERR_NONE)
+                {
+                    return true;
+                }
+                else if (err == ModbusErrEnum.MODBUS_ERR_DISCONNECTED)
+                {
+                    if (!Reconnect()) break;
+                }
+                else if (err == ModbusErrEnum.MODBUS_ERR_TIMEOUT)
+                {
+                    TimeOutCounter++;
+                }
+            }
+
+            if (TimeOutCounter >= RfidOperTryCnt)
+                Reconnect();
+
+            return false;
+        }
+
+        public string[] UhfReadEpc()
+        {
+            if (!ConnectOk)
+                if (!Reconnect())
+                    return null;
+
+            UhfEpc[] epcList = Reader.UhfRfidInventory(DefaultDeviceId);
+            if (epcList != null)
+            {
+                string[] tmp = new string[epcList.Length];
+
+                for (int i = 0; i < epcList.Length; i++)
+                    tmp[i] = epcList[i].EpcStr;
+
+                return tmp;
+            }
+
+            if(!Reader.GetConnectionStat()) Reconnect();
+
+            return null;
+        }
+
+        public bool UhfWriteEpc(string epc)
+        {
+            int TimeOutCounter = 0;
+            byte[] WriteData = RfidLib.Tool.HexStringToByte(epc, 0);
+
+            if ((WriteData == null || (WriteData.Length % 2) != 0))
+            {
+                return false;
+            }
+
+            ushort PC = (ushort)(WriteData.Length << 10);
+            for (int i = 0; i < RfidOperTryCnt; i++)
+            {
+                ModbusErrEnum err = Reader.UhfRfidWriteEpc(DefaultDeviceId, PC, WriteData, 0);
+                if (err == ModbusErrEnum.MODBUS_ERR_NONE)
+                {
+                    return true;
+                }
+                else if (err == ModbusErrEnum.MODBUS_ERR_DISCONNECTED)
+                {
+                    if (!Reconnect()) break;
+                }
+                else if (err == ModbusErrEnum.MODBUS_ERR_TIMEOUT)
+                {
+                    TimeOutCounter++;
+                }
+            }
+
+            if (TimeOutCounter >= RfidOperTryCnt)
+                Reconnect();
+
+            return false;
+        }
+
+        public bool SetRfidProtocol(RfidProtocolEnum protocol)
+        {
+            if (!ConnectOk)
+                if (!Reconnect())
+                    return false;
+
+            return (Reader.SetRfidProtocol(DefaultDeviceId, protocol) == ModbusErrEnum.MODBUS_ERR_NONE);
+        }
+
+        public string[] GetTagRecords(int num)
+        {
+            string[] IdLst = null;
+
+            if (!ConnectOk)
+                if (!Reconnect())
+                    return IdLst;
+
+            TagInfo_14443A[] tmp = Reader.RfidGetTagRecord_14443A(DefaultDeviceId, num);
+            if (tmp != null)
+            {
+                IdLst = new string[tmp.Length];
+                for (int i = 0;i<tmp.Length;i++)
+                {
+                    IdLst[i] = tmp[i].UidStr;
+                }
+            }
+
+            return IdLst;
+        }
+    }
+}
